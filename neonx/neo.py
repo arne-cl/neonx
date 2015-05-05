@@ -56,19 +56,28 @@ def get_label(i, label):
             "body": label}
 
 
-def generate_data(graph, edge_rel_name, label, encoder):
+def generate_data(graph, edge_rel_name=None, label=None, encoder=None,
+                  edge_rel_key=None):
     """converts a NetworkX graph into a format that can be uploaded to
     Neo4j using a single HTTP POST request.
+
+    If `edge_rel_name` is not present, then `edge_rel_key` should be provided.
 
     :rtype: a JSON encoded string for `Neo4j batch operations \
     <http://docs.neo4j.org/chunked/stable/rest-api-batch-ops.html>_`.
 
     :param graph: A NetworkX Graph or a DiGraph
-    :param edge_rel_name: string that describes the relationship between
-        the two nodes
+    :param optional edge_rel_name: string that describes the relationship
+        between the two nodes
     :param label: an optional label to be added to all nodes
     :param encoder: a JSONEncoder object
+    :param optional edge_rel_key: Key in edge attributes to use as edge label.
     """
+
+    if edge_rel_name is None and edge_rel_key is None:
+        raise ValueError(
+            'Must provide either `edge_rel_name` or `edge_rel_key`')
+
     is_digraph = isinstance(graph, nx.DiGraph)
     entities = []
     nodes = {}
@@ -82,14 +91,26 @@ def generate_data(graph, edge_rel_name, label, encoder):
             entities.append(get_label(i, label))
 
     for from_node, to_node, properties in graph.edges(data=True):
-        edge = get_relationship(nodes[from_node], nodes[to_node],
-                                edge_rel_name, properties)
+        if edge_rel_key is not None:
+            try:    # If `edge_rel_key` is not in this edge's properties...
+                ename = properties[edge_rel_key]
+            except KeyError:
+                # ...attempt to default to `edge_rel_name` before complaining.
+                if edge_rel_name is not None:
+                    ename = edge_rel_name
+                else:   # If neither are provided, raise a ValueError.
+                    raise ValueError('Invalid edge label key')
+        else:   # Use edge_rel_name if edge_rel_key is not provided.
+            ename = edge_rel_name
+
+        edge = get_relationship(nodes[from_node], nodes[to_node], ename,
+                                properties)
         entities.append(edge)
 
         if not is_digraph:
             reverse_edge = get_relationship(nodes[to_node],
                                             nodes[from_node],
-                                            edge_rel_name, properties)
+                                            ename, properties)
             entities.append(reverse_edge)
 
     return encoder.encode(entities)
@@ -127,11 +148,12 @@ def get_server_urls(server_url):
     """
     result = requests.get(server_url)
     check_exception(result)
+
     return result.json()
 
 
-def write_to_neo(server_url, graph, edge_rel_name, label=None,
-                 encoder=None):
+def write_to_neo(server_url, graph, edge_rel_name=None, label=None,
+                 encoder=None, edge_rel_key=None):
     """Write the `graph` as Geoff string. The edges between the nodes
     have relationship name `edge_rel_name`. The code
     below shows a simple example::
@@ -145,7 +167,6 @@ def write_to_neo(server_url, graph, edge_rel_name, label=None,
         G.add_edge(1, 2)
         G.add_edge(2, 3)
 
-
         # save graph to neo4j
         results = write_to_neo("http://localhost:7474/db/data/", G, \
 'LINKS_TO', 'Node')
@@ -158,22 +179,45 @@ def write_to_neo(server_url, graph, edge_rel_name, label=None,
     created. Label support were added in Neo4j 2.0. See \
     `here <http://bit.ly/1fo5324>`_.
 
+    If the parameter `edge_rel_key` is present, neonx will look for that
+    property in edge data and attempt to use its value as the relation name. If
+    that property is not found, then `edge_rel_name` will be used for that
+    edge. If `edge_rel_key` is not present, then `edge_rel_name` should be
+    provided.:
+        from neonx import write_to_neo
+
+        # create a graph
+        import networkx as nx
+        G = nx.Graph()
+        G.add_nodes_from([1, 2, 3])
+        G.add_edge(1, 2, label='KNOWS')
+        G.add_edge(2, 3)
+
+        results = write_to_neo("http://localhost:7474/db/data/", G, \
+'LINKS_TO', 'Node', edge_rel_key='label')
+
     :param server_url: Server URL for the Neo4j server.
     :param graph: A NetworkX Graph or a DiGraph.
-    :param edge_rel_name: Relationship name between the nodes.
+    :param optional edge_rel_name: Relationship name between the nodes.
     :param optional label: It will add this label to the node. \
 See `here <http://bit.ly/1fo5324>`_.
     :param optional encoder: JSONEncoder object. Defaults to JSONEncoder.
+    :param optional edge_rel_key: Key in edge attributes to use as edge label.
     :rtype: A list of Neo4j created resources.
     """
 
     if encoder is None:
         encoder = json.JSONEncoder()
 
+    if edge_rel_name is None and edge_rel_key is None:
+        raise ValueError(
+            'Must provide either `edge_rel_name` or `edge_rel_key`')
+
     all_server_urls = get_server_urls(server_url)
     batch_url = all_server_urls['batch']
 
-    data = generate_data(graph, edge_rel_name, label, encoder)
+    data = generate_data(graph, edge_rel_name=edge_rel_name, label=label,
+                         encoder=encoder, edge_rel_key=edge_rel_key)
     result = requests.post(batch_url, data=data, headers=HEADERS)
     check_exception(result)
     return result.json()
@@ -203,6 +247,7 @@ reference/classes.digraph.html>`_.
             ]
 
     result = requests.post(batch_url, data=json.dumps(data), headers=HEADERS)
+
     check_exception(result)
 
     node_data, edge_date = result.json()
