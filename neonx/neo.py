@@ -23,7 +23,8 @@ def get_node(node_id, properties):
     return {"method": "POST",
             "to": "/node",
             "id": node_id,
-            "body": properties}
+            "body": { k:v for k,v in properties.iteritems()
+                      if v not in ['', None] }}
 
 
 def get_relationship(from_id, to_id, rel_name, properties):
@@ -37,7 +38,8 @@ def get_relationship(from_id, to_id, rel_name, properties):
     :rtype: a dictionary representing a Neo4j POST request
     """
     body = {"to": "{{{0}}}".format(to_id), "type": rel_name,
-            "data": properties}
+            "data": { k:v for k,v in properties.iteritems()
+                      if v not in ['', None] }}
 
     return {"method": "POST",
             "to": "{{{0}}}/relationships".format(from_id),
@@ -54,6 +56,51 @@ def get_label(i, label):
     return {"method": "POST",
             "to": "{{{0}}}/labels".format(i),
             "body": label}
+
+
+def generate_chunk(graph, e_indices, edge_rel_name=None, label=None,
+                   encoder=None, edge_rel_key=None, chunk_size=None):
+
+    nodes = {}
+    entities = []
+    i = 0
+    is_digraph = isinstance(graph, nx.DiGraph)
+
+    s,e = e_indices
+    for from_node, to_node, properties in graph.edges(data=True)[s:e]:
+        from_properties = graph.node[from_node]
+        entities.append(get_node(i, from_properties))
+        nodes[from_node] = i
+        i += 1
+
+        to_properties = graph.node[to_node]
+        entities.append(get_node(i, to_properties))
+        nodes[to_node] = i
+        i += 1
+
+        if edge_rel_key is not None:
+            try:    # If `edge_rel_key` is not in this edge's properties...
+                ename = properties[edge_rel_key]
+            except KeyError:
+                # ...attempt to default to `edge_rel_name` before complaining.
+                if edge_rel_name is not None:
+                    ename = edge_rel_name
+                else:   # If neither are provided, raise a ValueError.
+                    raise ValueError('Invalid edge label key')
+        else:   # Use edge_rel_name if edge_rel_key is not provided.
+            ename = edge_rel_name
+
+        edge = get_relationship(nodes[from_node], nodes[to_node], ename,
+                                properties)
+        entities.append(edge)
+
+        if not is_digraph:
+            reverse_edge = get_relationship(nodes[to_node],
+                                            nodes[from_node],
+                                            ename, properties)
+            entities.append(reverse_edge)
+
+    return encoder.encode(entities)
 
 
 def generate_data(graph, edge_rel_name=None, label=None, encoder=None,
@@ -153,7 +200,7 @@ def get_server_urls(server_url):
 
 
 def write_to_neo(server_url, graph, edge_rel_name=None, label=None,
-                 encoder=None, edge_rel_key=None):
+                 encoder=None, edge_rel_key=None, chunk_size=None):
     """Write the `graph` as Geoff string. The edges between the nodes
     have relationship name `edge_rel_name`. The code
     below shows a simple example::
@@ -216,11 +263,26 @@ See `here <http://bit.ly/1fo5324>`_.
     all_server_urls = get_server_urls(server_url)
     batch_url = all_server_urls['batch']
 
-    data = generate_data(graph, edge_rel_name=edge_rel_name, label=label,
-                         encoder=encoder, edge_rel_key=edge_rel_key)
-    result = requests.post(batch_url, data=data, headers=HEADERS)
-    check_exception(result)
-    return result.json()
+    if chunk_size is not None:  # Send data in chunks.
+        results = []
+        N_edges = len(graph.edges())
+        for i in xrange(0, N_edges, chunk_size):
+            data = generate_chunk(graph, (i,i+chunk_size),
+                                  edge_rel_name=edge_rel_name, label=label,
+                                  encoder=encoder, edge_rel_key=edge_rel_key,
+                                  chunk_size=chunk_size)
+            result = requests.post(batch_url, data=data, headers=HEADERS)
+            check_exception(result)
+            results.append(result.json())
+        return results
+    else:                       # Otherwise send as one request.
+        data = generate_data(graph, edge_rel_name=edge_rel_name, label=label,
+                             encoder=encoder, edge_rel_key=edge_rel_key,
+                             chunk_size=chunk_size)
+        result = requests.post(batch_url, data=data, headers=HEADERS)
+        check_exception(result)
+
+        return result.json()
 
 
 LABEL_QRY = """MATCH (a:{0})-[r]->(b:{1}) RETURN ID(a), r, ID(b);"""
