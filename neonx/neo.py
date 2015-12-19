@@ -137,22 +137,24 @@ def check_exception(result):
     raise e
 
 
-def get_server_urls(server_url):
+def get_server_urls(server_url, user, password):
     """connects to the server with a GET request and returns its answer
     (e.g. a number of URLs of REST endpoints, the server version etc.)
     as a dictionary.
 
     :param server_url: the URL of the Neo4j server
+    :param user: A Neo4j user name.
+    :param password: The password belonging to the given Neo4j user name.
     :rtype: a dictionary of parameters of the Neo4j server
     """
-    result = requests.get(server_url)
+    result = requests.get(server_url, auth=(user, password))
     check_exception(result)
 
     return result.json()
 
 
-def write_to_neo(server_url, graph, edge_rel_name=None, label=None,
-                 encoder=None, edge_rel_key=None):
+def write_to_neo(server_url, graph, user, password, edge_rel_name=None,
+                 label=None, encoder=None, edge_rel_key=None):
     """Write the `graph` as Geoff string. The edges between the nodes
     have relationship name `edge_rel_name`. The code
     below shows a simple example::
@@ -197,6 +199,8 @@ def write_to_neo(server_url, graph, edge_rel_name=None, label=None,
 
     :param server_url: Server URL for the Neo4j server.
     :param graph: A NetworkX Graph or a DiGraph.
+    :param user: A Neo4j user name.
+    :param password: The password belonging to the given Neo4j user name.
     :param optional edge_rel_name: Relationship name between the nodes.
     :param optional label: It will add this label to the node. \
 See `here <http://bit.ly/1fo5324>`_.
@@ -212,12 +216,13 @@ See `here <http://bit.ly/1fo5324>`_.
         raise ValueError(
             'Must provide either `edge_rel_name` or `edge_rel_key`')
 
-    all_server_urls = get_server_urls(server_url)
+    all_server_urls = get_server_urls(server_url, user, password)
     batch_url = all_server_urls['batch']
 
     data = generate_data(graph, edge_rel_name=edge_rel_name, label=label,
                          encoder=encoder, edge_rel_key=edge_rel_key)
-    result = requests.post(batch_url, data=data, headers=HEADERS)
+    result = requests.post(batch_url, data=data, headers=HEADERS,
+                           auth=(user, password))
     check_exception(result)
     return result.json()
 
@@ -225,18 +230,19 @@ See `here <http://bit.ly/1fo5324>`_.
 LABEL_QRY = """MATCH (a:{0})-[r]->(b:{1}) RETURN ID(a), r, ID(b);"""
 
 
-def get_neo_graph(server_url, label):
+def get_neo_graph(server_url, label, user, password):
     """Return a graph of all nodes with a given Neo4j label and edges between
     the same nodes.
 
     :param server_url: Server URL for the Neo4j server.
     :param label: The label to retrieve the nodes for.
+    :param user: A Neo4j user name.
+    :param password: The password belonging to the given Neo4j user name.
     :rtype: A `Digraph \
 <http://networkx.github.io/documentation/latest/\
 reference/classes.digraph.html>`_.
     """
-
-    all_server_urls = get_server_urls(server_url)
+    all_server_urls = get_server_urls(server_url, user, password)
     batch_url = all_server_urls['batch']
 
     data = [{"method": "GET", "to": '/label/{0}/nodes'.format(label),

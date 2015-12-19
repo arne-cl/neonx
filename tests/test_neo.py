@@ -6,8 +6,15 @@ test_neo
 ----------------------------------
 
 Tests for `neo` module.
+
+NOTE: Current versions of Neo4J will not work without authentification.
+Therefore, you will have to set the `NEO4J_USER` and `NEO4J_PASS` variables
+in your environment in order to run these tests, e.g.:
+
+NEO4J_USER=neo4j NEO4J_PASS=secret python setup.py test
 """
 
+import os
 import json
 import unittest
 
@@ -18,6 +25,8 @@ import networkx as nx
 
 
 BATCH_URL = '{"batch":"http://localhost:7474/db/data/batch"}'
+NEO4J_USER = os.environ['NEO4J_USER']
+NEO4J_PASS = os.environ['NEO4J_PASS']
 
 
 class TestGenerateNeoData(unittest.TestCase):
@@ -53,7 +62,8 @@ class TestGenerateNeoData(unittest.TestCase):
                                body='["Dummy"]')
 
         result = write_to_neo("http://localhost:7474/db/data/", graph,
-                              "LINKS_TO", "ITEM")
+                              edge_rel_name="LINKS_TO", label="ITEM",
+                              user=NEO4J_USER, password=NEO4J_PASS)
 
         self.assertEqual(result, ["Dummy"])
 
@@ -90,9 +100,9 @@ class TestGenerateNeoData(unittest.TestCase):
         httpretty.register_uri(httpretty.POST,
                                "http://localhost:7474/db/data/batch",
                                body='["Dummy"]')
-
         result = write_to_neo("http://localhost:7474/db/data/", graph,
-                              "LINKS_TO", "ITEM")
+                              edge_rel_name="LINKS_TO", label="ITEM",
+                              user=NEO4J_USER, password=NEO4J_PASS)
         self.assertEqual(result, ["Dummy"])
 
     @httpretty.activate
@@ -108,8 +118,9 @@ class TestGenerateNeoData(unittest.TestCase):
                                body='Server Error', status=500,
                                content_type='text/html')
 
-        f = lambda: write_to_neo("http://localhost:7474/db/data/",
-                                 graph, 'LINK_TO', "ITEM")
+        f = lambda: write_to_neo("http://localhost:7474/db/data/", graph,
+                                 edge_rel_name="LINKS_TO", label="ITEM",
+                                 user=NEO4J_USER, password=NEO4J_PASS)
         self.assertRaises(Exception, f)
 
     @httpretty.activate
@@ -126,8 +137,9 @@ class TestGenerateNeoData(unittest.TestCase):
                                status=500,
                                content_type='application/json; charset=UTF-8')
 
-        f = lambda: write_to_neo("http://localhost:7474/db/data/",
-                                 graph, 'LINK_TO')
+        f = lambda: write_to_neo("http://localhost:7474/db/data/", graph,
+                                 edge_rel_name="LINK_TO",
+                                 user=NEO4J_USER, password=NEO4J_PASS)
         self.assertRaises(Exception, f)
 
 
@@ -152,7 +164,8 @@ class TestGetGraph(unittest.TestCase):
                                body=json.dumps(truth),
                                content_type='application/json; charset=UTF-8')
 
-        graph = get_neo_graph("http://localhost:7474/db/data/", "Node")
+        graph = get_neo_graph("http://localhost:7474/db/data/", "Node",
+                              user=NEO4J_USER, password=NEO4J_PASS)
 
         self.assertTrue(isinstance(graph, nx.DiGraph))
         self.assertEqual(graph.number_of_nodes(), 2)
@@ -185,8 +198,9 @@ class TestEdgeLabels(unittest.TestCase):
         `generate_data` should raise a ValueError if both `edge_rel_name`
         and `edge_rel_key` are missing.
         """
-
-        f = lambda: write_to_neo("http://localhost:7474/db/data/", self.graph)
+        
+        f = lambda: write_to_neo("http://localhost:7474/db/data/", self.graph,
+                                 user=NEO4J_USER, password=NEO4J_PASS)
         self.assertRaises(ValueError, f)
 
         f = lambda: generate_data(self.graph, encoder=self.encoder)
@@ -217,7 +231,6 @@ class TestEdgeLabels(unittest.TestCase):
         If `edge_rel_key` is provided, then it should be used to generate
         relation names.
         """
-
         edge_rel_name = 'LINKED_TO'
         edge_rel_key = 'label'
         data = json.loads(generate_data(self.graph,
@@ -241,13 +254,15 @@ class TestEdgeLabels(unittest.TestCase):
                 else:
                     self.assertEqual(edge_rel_name, label)
 
+        #~ import pudb; pudb.set_trace()
         # Writing the resulting requests should not raise any exceptions.
         try:
-            write_to_neo("http://localhost:7474/db/data/", self.graph,
-                         edge_rel_name=edge_rel_name,
-                         edge_rel_key=edge_rel_key)
+            write_to_neo(
+                "http://localhost:7474/db/data/", self.graph,
+                edge_rel_name=edge_rel_name, edge_rel_key=edge_rel_key,
+                user=NEO4J_USER, password=NEO4J_PASS)
         except Exception as e:
-            self.fail('Could not write graph to neo4j. Response: {}'.format(e))
+            self.fail('Could not write graph to neo4j. {}'.format(e))
 
 
 if __name__ == '__main__':
