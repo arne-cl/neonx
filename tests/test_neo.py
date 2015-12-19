@@ -246,8 +246,8 @@ class TestEdgeLabels(unittest.TestCase):
             write_to_neo("http://localhost:7474/db/data/", self.graph,
                          edge_rel_name=edge_rel_name,
                          edge_rel_key=edge_rel_key)
-        except:
-            self.fail('Could not write graph to neo4j')
+        except Exception as e:
+            self.fail('Could not write graph to neo4j. Response: {}'.format(e))
 
 
 if __name__ == '__main__':

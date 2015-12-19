@@ -130,8 +130,7 @@ def check_exception(result):
 
     if result.headers.get('content-type', '').lower() == JSON_CONTENT_TYPE:
         result_json = result.json()
-        e = Exception(result_json['exception'])
-        e.args += (result_json['stacktrace'], )
+        e = Exception(result_json['errors'])
     else:
         e = Exception("Unknown server error.")
         e.args += (result.content, )
